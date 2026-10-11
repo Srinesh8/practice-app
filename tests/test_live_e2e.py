@@ -59,3 +59,8 @@ def test_live_fetch_index_and_answer(tmp_path, monkeypatch):
 
     off_topic = rag.answer_question(qa_chain, "What is the boiling point of mercury in Fahrenheit?")
     assert "don't know" in off_topic["answer"].lower()
+
+    capability_request = rag.answer_question(qa_chain, "can you sing a song?")
+    capability_answer = capability_request["answer"].lower()
+    assert "don't know" in capability_answer
+    assert "i can only answer questions about" in capability_answer

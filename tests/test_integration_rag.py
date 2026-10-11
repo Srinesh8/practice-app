@@ -52,7 +52,42 @@ def test_pipeline_answers_i_dont_know_when_out_of_context(tmp_path, monkeypatch,
 
     result = rag.answer_question(qa_chain, "What is the capital of France?")
 
-    assert result["answer"] == "I don't know."
+    answer_lower = result["answer"].lower()
+    assert answer_lower.startswith("i don't know")
+    assert "i can only answer questions about" in answer_lower
+    assert "vid1" in result["answer"]  # names what it *can* help with, not just a bare refusal
+
+
+@pytest.mark.integration
+def test_pipeline_refuses_capability_requests_with_helpful_message(
+    tmp_path, monkeypatch, fake_embeddings, fake_llm
+):
+    """E.g. 'can you sing a song?' must not get a bare 'I don't know.' — it
+    should say it can't help with that and name what it *can* answer about."""
+    monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path / "transcripts"))
+    monkeypatch.setattr(rag.cfg, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma_db"))
+    monkeypatch.setattr(rag.cfg, "CHROMA_COLLECTION_NAME", "test_collection_5")
+    monkeypatch.setattr(rag.cfg, "CHUNK_SIZE", 200)
+    monkeypatch.setattr(rag.cfg, "CHUNK_OVERLAP", 0)
+    monkeypatch.setattr(rag.cfg, "RETRIEVER_TOP_K", 2)
+    monkeypatch.setattr(rag.cfg, "get_embeddings", lambda: fake_embeddings)
+    monkeypatch.setattr(rag.cfg, "get_llm", lambda: fake_llm)
+    monkeypatch.setattr(rag, "fetch_video_title", lambda video_id: "Intro to Large Language Models")
+
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts" / "vid1.txt").write_text(
+        "This video is about large language models and how they are trained."
+    )
+
+    vectorstore = rag.get_or_build_vectorstore(["vid1"])
+    qa_chain = rag.build_qa_chain(vectorstore)
+
+    for question in ["can you sing a song?", "write me a poem about the ocean"]:
+        result = rag.answer_question(qa_chain, question)
+        answer_lower = result["answer"].lower()
+        assert answer_lower.startswith("i don't know")
+        assert "i can only answer questions about" in answer_lower
+        assert "large language models" in answer_lower
 
 
 @pytest.mark.integration

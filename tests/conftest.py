@@ -30,8 +30,8 @@ class FakeLLM:
     """Offline stand-in for ChatOllama/ChatOpenAI/etc.
 
     Returns a canned answer when the question text is found verbatim in the
-    prompt's context, otherwise returns the "I don't know" fallback, mimicking
-    the behavior the real prompt is designed to elicit from a real LLM.
+    prompt's context, otherwise returns a refusal shaped like the real prompt's
+    "I don't know, here's what I *can* help with" fallback.
     """
 
     def __init__(self, answer_for_known="The sky is blue because of Rayleigh scattering."):
@@ -40,10 +40,23 @@ class FakeLLM:
 
     def invoke(self, messages):
         self.last_messages = messages
-        context = messages[0].content if messages else ""
-        if "Rayleigh scattering" in context:
+        system_content = messages[0].content if messages else ""
+        if "Rayleigh scattering" in system_content:
             return FakeLLMResponse(self.answer_for_known)
-        return FakeLLMResponse("I don't know.")
+
+        titles = []
+        if "Indexed videos:" in system_content:
+            block = system_content.split("Indexed videos:", 1)[1]
+            block = block.split("Retrieved transcript excerpts:", 1)[0]
+            for line in block.strip().splitlines():
+                if line.strip().startswith("-"):
+                    titles.append(line.split(":", 1)[-1].strip())
+
+        titles_text = "; ".join(titles) if titles else "nothing yet"
+        return FakeLLMResponse(
+            f"I don't know. I'm not able to help with that — I can only answer "
+            f"questions about: {titles_text}."
+        )
 
 
 @pytest.fixture
