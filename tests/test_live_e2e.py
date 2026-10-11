@@ -58,13 +58,11 @@ def test_live_fetch_index_and_answer(tmp_path, monkeypatch):
     assert result["sources"]
 
     off_topic = rag.answer_question(qa_chain, "What is the boiling point of mercury in Fahrenheit?")
-    assert "don't know" in off_topic["answer"].lower()
+    assert off_topic["refused"] is True
 
     capability_request = rag.answer_question(qa_chain, "can you sing a song?")
-    capability_answer = capability_request["answer"].lower()
-    assert capability_answer.startswith("i don't know")
-    assert "i can only answer questions about" in capability_answer
+    assert capability_request["refused"] is True
+    assert "i can only answer questions about" in capability_request["answer"].lower()
 
     scope_question = rag.answer_question(qa_chain, "what can you do?")
-    scope_answer = scope_question["answer"].lower()
-    assert not scope_answer.startswith("i don't know")
+    assert scope_question["refused"] is False

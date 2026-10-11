@@ -14,6 +14,7 @@ transcripts of YouTube videos you index. If the answer isn't in the transcripts,
 | `rag_youtube_chatbot.ipynb` | Same pipeline, step by step, as a runnable notebook |
 | `tests/` | Unit, integration, and live end-to-end tests |
 | `requirements.txt` | Pinned Python dependencies |
+| `.env.example` | Every config setting with a dummy value — copy to `.env` and edit |
 
 ## Why these tools
 
@@ -35,6 +36,16 @@ transcripts of YouTube videos you index. If the answer isn't in the transcripts,
   and Ollama services and are skipped automatically if those aren't available.
 
 ## Setup
+
+### 0. Create your `.env` (optional)
+
+```bash
+cp .env.example .env
+```
+
+Every setting has a working hardcoded default, so this step is optional — only edit `.env`
+if you want to change a default up front instead of using the Streamlit settings panel
+later. See **Configuration** below for the full list.
 
 ### 1. Install Python dependencies
 
@@ -119,18 +130,25 @@ settings (`secrets/settings.json`) → environment variables / `.env` → hardco
 
 | Setting | Env var | Default | Notes |
 |---|---|---|---|
-| LLM provider | `LLM_PROVIDER` | `ollama` | `ollama`, `openai`, or `gemini` |
+| LLM provider | `LLM_PROVIDER` | `ollama` | one of `model_config.LLM_PROVIDERS` — currently `ollama`, `openai`, `gemini` |
 | LLM model | `LLM_MODEL` | `gpt-oss:120b-cloud` | e.g. `gpt-4o-mini`, `gemini-1.5-flash` |
 | LLM temperature | `LLM_TEMPERATURE` | `0.0` | |
-| Embedding provider | `EMBEDDING_PROVIDER` | `ollama` | `ollama` or `openai` |
+| Embedding provider | `EMBEDDING_PROVIDER` | `ollama` | one of `model_config.EMBEDDING_PROVIDERS` — currently `ollama`, `openai` |
 | Embedding model | `EMBEDDING_MODEL` | `nomic-embed-text` | |
 | Ollama base URL | `OLLAMA_BASE_URL` | `http://localhost:11434` | point this at a remote Ollama host if needed |
 | OpenAI API key | `OPENAI_API_KEY` | — | only needed if provider = `openai` |
 | Google API key | `GOOGLE_API_KEY` | — | only needed if provider = `gemini` |
 | Webshare proxy user/pass | `WEBSHARE_PROXY_USERNAME` / `_PASSWORD` | — | alternative to cookies for YouTube blocking |
 | YouTube cookies path | `YOUTUBE_COOKIES_PATH` | — | see step 3 above |
+| Cookie upload destination | `COOKIES_UPLOAD_PATH` | `secrets/cookies.txt` | where the UI's cookie uploader writes to |
+| Default video IDs/URLs | `DEFAULT_VIDEO_IDS` | `zjkBMFhNj_g` | comma-separated; seeds the app on first run |
 | Chunk size / overlap | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | not exposed in the UI |
 | Retriever top-k | `RETRIEVER_TOP_K` | `4` | chunks retrieved per question |
+
+**Adding a new provider**: `model_config.py` has a single registry (`LLM_PROVIDERS` /
+`EMBEDDING_PROVIDERS` dicts mapping a provider name to a factory function) that both
+`get_llm()`/`get_embeddings()` and the Streamlit dropdowns read from — add one entry there
+and it shows up everywhere automatically, no other file to edit.
 
 **Switching providers**: in the UI, picking `openai`/`gemini` marks the matching API key
 field **"(required)"**, and **Save settings** refuses to save (with a clear error) until
@@ -162,17 +180,26 @@ shows a friendly in-app error instead of crashing.
 The system prompt (in `rag.py`) enforces a few guarantees beyond "only answer from
 context":
 
-- **Strict grounding**: if the retrieved chunks don't contain the answer, it says exactly
-  "I don't know" — it won't fall back to the model's general knowledge.
+- **Strict grounding**: if the retrieved chunks don't contain the answer, it refuses rather
+  than falling back to the model's general knowledge.
+- **Scope questions vs. genuine refusals**: "what can you do?" / "what are your
+  capabilities?" / "what topics/videos do you know about?" are things the bot genuinely
+  knows (its own scope) and get answered directly and confidently — no "I don't know"
+  prefix, since that would be misleading for something it *can* answer. A genuine refusal
+  (asking it to do an unrelated task like "sing a song", or answer a fact the transcripts
+  don't cover) always starts with the literal text "I don't know." followed by one sentence
+  naming what it *can* help with. `answer_question()` computes this once as a `refused: bool`
+  in its return value — the UI and tests both check that flag rather than re-parsing the
+  answer text themselves.
 - **No self-impersonation**: some transcripts talk in first person about what "I, an AI
   model, can do" (e.g. a talk about LLM capabilities). Without guarding against it, the bot
   would parrot that framing and sound like it was claiming those abilities for itself. The
   prompt forces third-person attribution instead — it answers "The video explains that
   language models can..." rather than "I can...". This was caught and fixed after testing
   with a video that discusses AI capabilities.
-- **Meta-questions**: "what topics/videos can you answer about?" is answered from a live
-  "indexed videos" list injected into every prompt (backed directly by the vector store's
-  contents, not a side cache), so it always matches what's actually searchable.
+- **Meta-questions stay in sync**: the "indexed videos" list injected into every prompt is
+  derived directly from the vector store's contents (not a side cache), so it always matches
+  what's actually searchable.
 
 ## Example questions to try
 
@@ -181,11 +208,13 @@ index):
 
 - **In-context**: "What is a large language model?", "What does the video say about
   tokenization?"
-- **Meta / "what do you know"**: "What topics or videos can you answer questions about?"
+- **Scope question** (should answer directly, no "I don't know"): "What can you do?", "What
+  topics or videos can you answer questions about?"
 - **Third-person attribution check**: "What are your capabilities?" (if the video discusses
   AI capabilities, the answer should say "The video explains that..." — never "I can...")
-- **Out-of-context** (should answer "I don't know"): "What's the weather today?", "Who won
-  the last cricket world cup?"
+- **Genuine refusal** (should start with "I don't know" and name what it *can* help with):
+  "Can you sing a song?", "Write me a poem", "What's the weather today?", "Who won the last
+  cricket world cup?"
 
 ## Local deployment (what we actually did)
 

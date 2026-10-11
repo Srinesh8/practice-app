@@ -120,5 +120,5 @@ def test_build_qa_chain_returns_answer_and_sources(monkeypatch):
     qa_chain = rag.build_qa_chain(vectorstore)
     result = rag.answer_question(qa_chain, "a question?")
 
-    assert result == {"answer": "the answer", "sources": ["vid1#chunk0"]}
+    assert result == {"answer": "the answer", "sources": ["vid1#chunk0"], "refused": False}
     retriever.invoke.assert_called_once_with("a question?")

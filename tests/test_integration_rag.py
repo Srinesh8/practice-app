@@ -54,9 +54,8 @@ def test_pipeline_answers_scope_questions_directly_without_i_dont_know(
 
     for question in ["what can you do?", "what are your capabilities?"]:
         result = rag.answer_question(qa_chain, question)
-        answer_lower = result["answer"].lower()
-        assert not answer_lower.startswith("i don't know")
-        assert "large language models" in answer_lower
+        assert result["refused"] is False
+        assert "large language models" in result["answer"].lower()
 
 
 @pytest.mark.integration
@@ -80,8 +79,8 @@ def test_pipeline_answers_i_dont_know_when_out_of_context(tmp_path, monkeypatch,
 
     result = rag.answer_question(qa_chain, "What is the capital of France?")
 
+    assert result["refused"] is True
     answer_lower = result["answer"].lower()
-    assert answer_lower.startswith("i don't know")
     assert "i can only answer questions about" in answer_lower
     assert "vid1" in result["answer"]  # names what it *can* help with, not just a bare refusal
 
@@ -112,8 +111,8 @@ def test_pipeline_refuses_capability_requests_with_helpful_message(
 
     for question in ["can you sing a song?", "write me a poem about the ocean"]:
         result = rag.answer_question(qa_chain, question)
+        assert result["refused"] is True
         answer_lower = result["answer"].lower()
-        assert answer_lower.startswith("i don't know")
         assert "i can only answer questions about" in answer_lower
         assert "large language models" in answer_lower
 

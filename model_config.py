@@ -103,64 +103,79 @@ RETRIEVER_TOP_K = int(os.getenv("RETRIEVER_TOP_K", "4"))
 TRANSCRIPTS_DIR = os.getenv("TRANSCRIPTS_DIR", "transcripts")
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "chroma_db")
 CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "youtube_transcripts")
+COOKIES_UPLOAD_PATH = os.getenv("COOKIES_UPLOAD_PATH", "secrets/cookies.txt")
+DEFAULT_VIDEO_IDS = [v for v in os.getenv("DEFAULT_VIDEO_IDS", "zjkBMFhNj_g").split(",") if v]
+
+
+def _ollama_embeddings(s: dict):
+    from langchain_ollama import OllamaEmbeddings
+
+    return OllamaEmbeddings(model=s["embedding_model"], base_url=s["ollama_base_url"])
+
+
+def _openai_embeddings(s: dict):
+    from langchain_openai import OpenAIEmbeddings
+
+    return OpenAIEmbeddings(model=s["embedding_model"], api_key=s["openai_api_key"] or None)
+
+
+def _ollama_llm(s: dict):
+    from langchain_ollama import ChatOllama
+
+    return ChatOllama(
+        model=s["llm_model"], base_url=s["ollama_base_url"], temperature=s["llm_temperature"]
+    )
+
+
+def _openai_llm(s: dict):
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model=s["llm_model"], temperature=s["llm_temperature"], api_key=s["openai_api_key"] or None
+    )
+
+
+def _gemini_llm(s: dict):
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    return ChatGoogleGenerativeAI(
+        model=s["llm_model"],
+        temperature=s["llm_temperature"],
+        google_api_key=s["google_api_key"] or None,
+    )
+
+
+# Single source of truth for which providers exist. Add a new provider by
+# adding one entry here — get_llm()/get_embeddings() and the Streamlit
+# dropdowns (built from list(...)) both pick it up automatically.
+EMBEDDING_PROVIDERS = {
+    "ollama": _ollama_embeddings,
+    "openai": _openai_embeddings,
+}
+
+LLM_PROVIDERS = {
+    "ollama": _ollama_llm,
+    "openai": _openai_llm,
+    "gemini": _gemini_llm,
+}
 
 
 def get_embeddings():
     """Return a LangChain embeddings instance for the configured provider."""
     settings = load_settings()
     provider = settings["embedding_provider"]
-
-    if provider == "ollama":
-        from langchain_ollama import OllamaEmbeddings
-
-        return OllamaEmbeddings(
-            model=settings["embedding_model"], base_url=settings["ollama_base_url"]
-        )
-
-    if provider == "openai":
-        from langchain_openai import OpenAIEmbeddings
-
-        return OpenAIEmbeddings(
-            model=settings["embedding_model"],
-            api_key=settings["openai_api_key"] or None,
-        )
-
-    raise ValueError(f"Unknown embedding_provider: {provider!r}")
+    if provider not in EMBEDDING_PROVIDERS:
+        raise ValueError(f"Unknown embedding_provider: {provider!r}")
+    return EMBEDDING_PROVIDERS[provider](settings)
 
 
 def get_llm():
     """Return a LangChain chat model instance for the configured provider."""
     settings = load_settings()
     provider = settings["llm_provider"]
-
-    if provider == "ollama":
-        from langchain_ollama import ChatOllama
-
-        return ChatOllama(
-            model=settings["llm_model"],
-            base_url=settings["ollama_base_url"],
-            temperature=settings["llm_temperature"],
-        )
-
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-
-        return ChatOpenAI(
-            model=settings["llm_model"],
-            temperature=settings["llm_temperature"],
-            api_key=settings["openai_api_key"] or None,
-        )
-
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        return ChatGoogleGenerativeAI(
-            model=settings["llm_model"],
-            temperature=settings["llm_temperature"],
-            google_api_key=settings["google_api_key"] or None,
-        )
-
-    raise ValueError(f"Unknown llm_provider: {provider!r}")
+    if provider not in LLM_PROVIDERS:
+        raise ValueError(f"Unknown llm_provider: {provider!r}")
+    return LLM_PROVIDERS[provider](settings)
 
 
 def get_transcript_api():

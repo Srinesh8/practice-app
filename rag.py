@@ -62,6 +62,15 @@ PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
+# The one place that knows what a refusal looks like. Everything else (the UI,
+# tests) should check result["refused"] from answer_question() instead of
+# re-parsing the answer text themselves.
+_REFUSAL_PREFIX = "i don't know"
+
+
+def _is_refusal(answer_text: str) -> bool:
+    return answer_text.strip().lower().startswith(_REFUSAL_PREFIX)
+
 
 def extract_video_id(raw: str) -> str:
     """Pull a YouTube video ID out of a pasted URL, or pass through a bare ID.
@@ -267,9 +276,11 @@ def build_qa_chain(vectorstore: Chroma):
             video_list=video_list, context=context, question=question
         )
         response = llm.invoke(messages)
+        answer_text = response.content
         return {
-            "answer": response.content,
+            "answer": answer_text,
             "sources": [d.metadata["source"] for d in docs],
+            "refused": _is_refusal(answer_text),
         }
 
     return answer

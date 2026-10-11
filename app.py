@@ -13,9 +13,6 @@ from rag import (
     get_or_build_vectorstore,
 )
 
-DEFAULT_VIDEO_IDS = ["zjkBMFhNj_g"]  # Andrej Karpathy - "Intro to Large Language Models"
-COOKIES_UPLOAD_PATH = "secrets/cookies.txt"
-
 st.set_page_config(page_title="YouTube RAG Chatbot", page_icon="🎥")
 st.title("🎥 YouTube Transcript RAG Chatbot")
 st.caption("Answers only from the indexed video transcripts. Says \"I don't know\" otherwise.")
@@ -25,20 +22,22 @@ with st.sidebar:
         settings = cfg.load_settings()
 
         st.caption("Model selection")
+        llm_provider_options = list(cfg.LLM_PROVIDERS)
         llm_provider = st.selectbox(
             "LLM provider",
-            options=["ollama", "openai", "gemini"],
-            index=["ollama", "openai", "gemini"].index(settings["llm_provider"]),
+            options=llm_provider_options,
+            index=llm_provider_options.index(settings["llm_provider"]),
         )
         llm_model = st.text_input("LLM model", value=settings["llm_model"])
         llm_temperature = st.slider(
             "LLM temperature", min_value=0.0, max_value=1.0, value=settings["llm_temperature"]
         )
 
+        embedding_provider_options = list(cfg.EMBEDDING_PROVIDERS)
         embedding_provider = st.selectbox(
             "Embedding provider",
-            options=["ollama", "openai"],
-            index=["ollama", "openai"].index(settings["embedding_provider"]),
+            options=embedding_provider_options,
+            index=embedding_provider_options.index(settings["embedding_provider"]),
         )
         embedding_model = st.text_input("Embedding model", value=settings["embedding_model"])
 
@@ -106,11 +105,11 @@ with st.sidebar:
                     updates["webshare_proxy_password"] = webshare_password
 
                 if cookies_file is not None:
-                    os.makedirs(os.path.dirname(COOKIES_UPLOAD_PATH), exist_ok=True)
-                    with open(COOKIES_UPLOAD_PATH, "wb") as f:
+                    os.makedirs(os.path.dirname(cfg.COOKIES_UPLOAD_PATH), exist_ok=True)
+                    with open(cfg.COOKIES_UPLOAD_PATH, "wb") as f:
                         f.write(cookies_file.getbuffer())
-                    os.chmod(COOKIES_UPLOAD_PATH, 0o600)
-                    updates["youtube_cookies_path"] = COOKIES_UPLOAD_PATH
+                    os.chmod(cfg.COOKIES_UPLOAD_PATH, 0o600)
+                    updates["youtube_cookies_path"] = cfg.COOKIES_UPLOAD_PATH
 
                 cfg.save_settings(updates)
 
@@ -123,7 +122,7 @@ with st.sidebar:
     st.header("Indexed videos")
     video_ids_input = st.text_area(
         "YouTube video IDs or URLs (one per line)",
-        value="\n".join(DEFAULT_VIDEO_IDS),
+        value="\n".join(cfg.DEFAULT_VIDEO_IDS),
         height=100,
     )
     if st.button("Fetch + Index"):
@@ -147,7 +146,7 @@ def _friendly_provider_error(exc: Exception) -> str:
 
 
 if "vectorstore" not in st.session_state:
-    video_ids = [v.strip() for v in DEFAULT_VIDEO_IDS]
+    video_ids = [extract_video_id(v) for v in cfg.DEFAULT_VIDEO_IDS]
     fetch_transcripts(video_ids)
     try:
         st.session_state.vectorstore = get_or_build_vectorstore(video_ids)
@@ -179,7 +178,7 @@ if question := st.chat_input("Ask a question about the indexed videos..."):
             try:
                 result = answer_question(st.session_state.qa_chain, question)
                 answer = result["answer"]
-                if result["sources"] and "i don't know" not in answer.strip().lower():
+                if result["sources"] and not result["refused"]:
                     answer += "\n\n*Sources: " + ", ".join(result["sources"]) + "*"
             except Exception as exc:
                 answer = _friendly_provider_error(exc)
