@@ -4,8 +4,10 @@ question-answering chain. Used by both the notebook and app.py so there is a
 single implementation of the pipeline.
 """
 
+import json
 import os
 
+import requests
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,12 +19,25 @@ SYSTEM_PROMPT = """You are a helpful assistant answering questions ONLY using \
 the context below, which comes from YouTube video transcripts.
 
 Rules:
-- Answer using only the information in the context.
+- Answer using only the information in the context below.
 - If the context does not contain the answer, respond exactly: "I don't know."
 - Do not use outside knowledge, even if you know the answer.
-- Mention which chunk(s) (by their [source] tag) the answer came from.
+- If asked what topics/videos you can answer questions about, answer using the
+  "Indexed videos" list below — that list is itself valid context.
+- You are summarizing what the transcripts say, not describing yourself. If a
+  transcript speaker talks in first person (e.g. a video about "what I, an AI
+  model, can do"), you must still report it in third person, attributed to the
+  video (e.g. "The video explains that language models can..."). Never say
+  "I can..." about any ability, tool, or capability unless it is this chatbot's
+  own documented behavior (answering only from indexed transcripts).
+- Write the answer as clear prose or a short bullet list, whichever fits the
+  question. Do not include inline [source] tags in the answer text itself;
+  sources are shown separately.
 
-Context:
+Indexed videos:
+{video_list}
+
+Retrieved transcript excerpts:
 {context}
 """
 
@@ -32,6 +47,66 @@ PROMPT = ChatPromptTemplate.from_messages(
         ("human", "{question}"),
     ]
 )
+
+
+def _titles_path() -> str:
+    return os.path.join(cfg.TRANSCRIPTS_DIR, "_titles.json")
+
+
+def _load_titles() -> dict:
+    path = _titles_path()
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_title(video_id: str, title: str) -> None:
+    titles = _load_titles()
+    titles[video_id] = title
+    with open(_titles_path(), "w", encoding="utf-8") as f:
+        json.dump(titles, f, indent=2)
+
+
+def fetch_video_title(video_id: str) -> str:
+    """Best-effort video title lookup via YouTube's public oEmbed endpoint (no API key)."""
+    try:
+        resp = requests.get(
+            "https://www.youtube.com/oembed",
+            params={"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        return resp.json().get("title", video_id)
+    except requests.RequestException:
+        return video_id
+
+
+def _video_ids_in_vectorstore(vectorstore: Chroma) -> set:
+    existing = vectorstore.get()
+    return {meta["video_id"] for meta in existing["metadatas"] if meta}
+
+
+def get_indexed_videos(vectorstore: Chroma | None = None) -> dict:
+    """Return {video_id: title} for videos actually searchable in the vector store.
+
+    If vectorstore is omitted, falls back to whatever's in the title cache file.
+    Any video found in the vector store but missing a cached title (e.g. it was
+    indexed before title tracking existed) gets backfilled on the spot, so the
+    list the LLM sees always matches what's actually retrievable.
+    """
+    titles = _load_titles()
+
+    if vectorstore is None:
+        return titles
+
+    video_ids = _video_ids_in_vectorstore(vectorstore)
+    for video_id in video_ids:
+        if video_id not in titles:
+            titles[video_id] = fetch_video_title(video_id)
+            _save_title(video_id, titles[video_id])
+
+    return {vid: titles[vid] for vid in video_ids}
 
 
 def fetch_transcripts(video_ids: list[str]) -> list[str]:
@@ -47,6 +122,8 @@ def fetch_transcripts(video_ids: list[str]) -> list[str]:
     for video_id in video_ids:
         path = os.path.join(cfg.TRANSCRIPTS_DIR, f"{video_id}.txt")
         if os.path.exists(path):
+            if video_id not in _load_titles():
+                _save_title(video_id, fetch_video_title(video_id))
             available.append(video_id)
             continue
 
@@ -60,6 +137,7 @@ def fetch_transcripts(video_ids: list[str]) -> list[str]:
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
 
+        _save_title(video_id, fetch_video_title(video_id))
         available.append(video_id)
         print(f"[ok] saved transcript for {video_id} ({len(text)} chars)")
 
@@ -108,10 +186,7 @@ def get_or_build_vectorstore(video_ids: list[str] | None = None) -> Chroma:
         persist_directory=cfg.CHROMA_PERSIST_DIR,
     )
 
-    existing = vectorstore.get()
-    already_indexed = {
-        meta["video_id"] for meta in existing["metadatas"] if meta
-    }
+    already_indexed = _video_ids_in_vectorstore(vectorstore)
 
     if video_ids:
         new_video_ids = [v for v in video_ids if v not in already_indexed]
@@ -133,7 +208,12 @@ def build_qa_chain(vectorstore: Chroma):
         context = "\n\n".join(
             f"[{d.metadata['source']}] {d.page_content}" for d in docs
         )
-        messages = PROMPT.format_messages(context=context, question=question)
+        titles = get_indexed_videos(vectorstore)
+        video_list = "\n".join(f"- {vid}: {title}" for vid, title in titles.items()) or "(none indexed yet)"
+
+        messages = PROMPT.format_messages(
+            video_list=video_list, context=context, question=question
+        )
         response = llm.invoke(messages)
         return {
             "answer": response.content,

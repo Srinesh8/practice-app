@@ -56,6 +56,33 @@ def test_pipeline_answers_i_dont_know_when_out_of_context(tmp_path, monkeypatch,
 
 
 @pytest.mark.integration
+def test_get_indexed_videos_backfills_title_for_videos_missing_from_cache(
+    tmp_path, monkeypatch, fake_embeddings
+):
+    """Regression test: a video indexed before title-tracking existed (so it's
+    missing from transcripts/_titles.json) must still show up with its title,
+    derived from the vector store itself rather than the title cache file."""
+    monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path / "transcripts"))
+    monkeypatch.setattr(rag.cfg, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma_db"))
+    monkeypatch.setattr(rag.cfg, "CHROMA_COLLECTION_NAME", "test_collection_4")
+    monkeypatch.setattr(rag.cfg, "CHUNK_SIZE", 200)
+    monkeypatch.setattr(rag.cfg, "CHUNK_OVERLAP", 0)
+    monkeypatch.setattr(rag.cfg, "get_embeddings", lambda: fake_embeddings)
+    monkeypatch.setattr(rag, "fetch_video_title", lambda video_id: f"Title for {video_id}")
+
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts" / "vid1.txt").write_text("some transcript text")
+
+    # Index directly without ever calling fetch_transcripts, so no title gets
+    # cached the "normal" way - simulates data indexed before this feature existed.
+    vectorstore = rag.get_or_build_vectorstore(["vid1"])
+
+    assert rag.get_indexed_videos(vectorstore) == {"vid1": "Title for vid1"}
+    # And it's now cached for next time.
+    assert rag.get_indexed_videos() == {"vid1": "Title for vid1"}
+
+
+@pytest.mark.integration
 def test_get_or_build_vectorstore_skips_reindexing_existing_video(tmp_path, monkeypatch, fake_embeddings):
     monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path / "transcripts"))
     monkeypatch.setattr(rag.cfg, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma_db"))

@@ -1,10 +1,13 @@
 youtube-transcript-api==1.2.4
 langchain==0.3.21
 langchain-ollama==0.2.3
+langchain-openai==0.3.9
+langchain-google-genai==2.0.11
 langchain-chroma==0.2.2
 langchain-text-splitters==0.3.7
 chromadb==0.6.3
-streamlit==1.42.0
+streamlit==1.65.0
+protobuf>=6.33.5,<7.0.0
 python-dotenv==1.0.1
 pytest==8.3.4
 requests==2.32.3

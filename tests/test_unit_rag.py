@@ -12,6 +12,7 @@ class _FakeSnippet:
 
 def test_fetch_transcripts_skips_already_saved(tmp_path, monkeypatch):
     monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path))
+    monkeypatch.setattr(rag, "fetch_video_title", lambda video_id: "Fake Title")
     existing = tmp_path / "abc123.txt"
     existing.write_text("already here")
 
@@ -26,6 +27,7 @@ def test_fetch_transcripts_skips_already_saved(tmp_path, monkeypatch):
 
 def test_fetch_transcripts_saves_new_video(tmp_path, monkeypatch):
     monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path))
+    monkeypatch.setattr(rag, "fetch_video_title", lambda video_id: "Fake Title")
 
     fake_api = MagicMock()
     fake_api.fetch.return_value = [_FakeSnippet("hello"), _FakeSnippet("world")]
@@ -36,6 +38,19 @@ def test_fetch_transcripts_saves_new_video(tmp_path, monkeypatch):
     assert result == ["vid1"]
     saved = (tmp_path / "vid1.txt").read_text()
     assert saved == "hello world"
+
+
+def test_fetch_transcripts_persists_title_for_indexed_videos(tmp_path, monkeypatch):
+    monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path))
+    monkeypatch.setattr(rag, "fetch_video_title", lambda video_id: f"Title for {video_id}")
+
+    fake_api = MagicMock()
+    fake_api.fetch.return_value = [_FakeSnippet("hello")]
+    monkeypatch.setattr(rag.cfg, "get_transcript_api", lambda: fake_api)
+
+    rag.fetch_transcripts(["vid1"])
+
+    assert rag.get_indexed_videos() == {"vid1": "Title for vid1"}
 
 
 def test_fetch_transcripts_skips_on_api_error(tmp_path, monkeypatch):

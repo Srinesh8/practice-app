@@ -39,14 +39,17 @@ with st.sidebar:
         ollama_base_url = st.text_input("Ollama base URL", value=settings["ollama_base_url"])
 
         st.caption("Credentials (masked, stored locally in `secrets/`, never committed)")
+        openai_required = llm_provider == "openai" or embedding_provider == "openai"
+        gemini_required = llm_provider == "gemini"
+
         openai_api_key = st.text_input(
-            "OpenAI API key",
+            "OpenAI API key" + (" *(required)*" if openai_required else ""),
             value="",
             type="password",
             placeholder=cfg.mask(settings["openai_api_key"]) or "not set",
         )
         google_api_key = st.text_input(
-            "Google (Gemini) API key",
+            "Google (Gemini) API key" + (" *(required)*" if gemini_required else ""),
             value="",
             type="password",
             placeholder=cfg.mask(settings["google_api_key"]) or "not set",
@@ -65,38 +68,51 @@ with st.sidebar:
         cookies_file = st.file_uploader("Upload cookies.txt", type=["txt"])
 
         if st.button("Save settings"):
-            updates = {
-                "llm_provider": llm_provider,
-                "llm_model": llm_model,
-                "llm_temperature": llm_temperature,
-                "embedding_provider": embedding_provider,
-                "embedding_model": embedding_model,
-                "ollama_base_url": ollama_base_url,
-                "webshare_proxy_username": webshare_username,
-            }
-            # Only overwrite a secret if the user actually typed a new value;
-            # otherwise keep whatever was already saved.
-            if openai_api_key:
-                updates["openai_api_key"] = openai_api_key
-            if google_api_key:
-                updates["google_api_key"] = google_api_key
-            if webshare_password:
-                updates["webshare_proxy_password"] = webshare_password
+            has_openai_key = bool(openai_api_key or settings["openai_api_key"])
+            has_google_key = bool(google_api_key or settings["google_api_key"])
 
-            if cookies_file is not None:
-                os.makedirs(os.path.dirname(COOKIES_UPLOAD_PATH), exist_ok=True)
-                with open(COOKIES_UPLOAD_PATH, "wb") as f:
-                    f.write(cookies_file.getbuffer())
-                os.chmod(COOKIES_UPLOAD_PATH, 0o600)
-                updates["youtube_cookies_path"] = COOKIES_UPLOAD_PATH
+            missing = []
+            if openai_required and not has_openai_key:
+                missing.append("OpenAI API key (required for the OpenAI provider you selected)")
+            if gemini_required and not has_google_key:
+                missing.append("Google (Gemini) API key (required for the Gemini provider you selected)")
 
-            cfg.save_settings(updates)
+            if missing:
+                for msg in missing:
+                    st.error(msg)
+            else:
+                updates = {
+                    "llm_provider": llm_provider,
+                    "llm_model": llm_model,
+                    "llm_temperature": llm_temperature,
+                    "embedding_provider": embedding_provider,
+                    "embedding_model": embedding_model,
+                    "ollama_base_url": ollama_base_url,
+                    "webshare_proxy_username": webshare_username,
+                }
+                # Only overwrite a secret if the user actually typed a new value;
+                # otherwise keep whatever was already saved.
+                if openai_api_key:
+                    updates["openai_api_key"] = openai_api_key
+                if google_api_key:
+                    updates["google_api_key"] = google_api_key
+                if webshare_password:
+                    updates["webshare_proxy_password"] = webshare_password
 
-            # Force the QA chain/embeddings to be rebuilt with the new settings.
-            st.session_state.pop("qa_chain", None)
-            st.session_state.pop("vectorstore", None)
-            st.success("Settings saved.")
-            st.rerun()
+                if cookies_file is not None:
+                    os.makedirs(os.path.dirname(COOKIES_UPLOAD_PATH), exist_ok=True)
+                    with open(COOKIES_UPLOAD_PATH, "wb") as f:
+                        f.write(cookies_file.getbuffer())
+                    os.chmod(COOKIES_UPLOAD_PATH, 0o600)
+                    updates["youtube_cookies_path"] = COOKIES_UPLOAD_PATH
+
+                cfg.save_settings(updates)
+
+                # Force the QA chain/embeddings to be rebuilt with the new settings.
+                st.session_state.pop("qa_chain", None)
+                st.session_state.pop("vectorstore", None)
+                st.success("Settings saved.")
+                st.rerun()
 
     st.header("Indexed videos")
     video_ids_input = st.text_area(
@@ -112,13 +128,31 @@ with st.sidebar:
             st.session_state.qa_chain = build_qa_chain(st.session_state.vectorstore)
         st.success(f"Indexed: {available}")
 
+def _friendly_provider_error(exc: Exception) -> str:
+    settings = cfg.load_settings()
+    return (
+        f"Could not reach the configured model ({settings['llm_provider']} / "
+        f"{settings['llm_model']}): **{exc}**\n\n"
+        "If you switched to OpenAI or Gemini, make sure you entered and saved "
+        "the matching API key in **⚙️ Model & credentials settings** first."
+    )
+
+
 if "vectorstore" not in st.session_state:
     video_ids = [v.strip() for v in DEFAULT_VIDEO_IDS]
     fetch_transcripts(video_ids)
-    st.session_state.vectorstore = get_or_build_vectorstore(video_ids)
+    try:
+        st.session_state.vectorstore = get_or_build_vectorstore(video_ids)
+    except Exception as exc:
+        st.error(_friendly_provider_error(exc))
+        st.stop()
 
 if "qa_chain" not in st.session_state:
-    st.session_state.qa_chain = build_qa_chain(st.session_state.vectorstore)
+    try:
+        st.session_state.qa_chain = build_qa_chain(st.session_state.vectorstore)
+    except Exception as exc:
+        st.error(_friendly_provider_error(exc))
+        st.stop()
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -134,10 +168,13 @@ if question := st.chat_input("Ask a question about the indexed videos..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            result = answer_question(st.session_state.qa_chain, question)
-            answer = result["answer"]
-            if result["sources"]:
-                answer += "\n\n*Sources: " + ", ".join(result["sources"]) + "*"
+            try:
+                result = answer_question(st.session_state.qa_chain, question)
+                answer = result["answer"]
+                if result["sources"] and "i don't know" not in answer.strip().lower():
+                    answer += "\n\n*Sources: " + ", ".join(result["sources"]) + "*"
+            except Exception as exc:
+                answer = _friendly_provider_error(exc)
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
