@@ -6,6 +6,8 @@ single implementation of the pipeline.
 
 import json
 import os
+import re
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from langchain_chroma import Chroma
@@ -52,6 +54,44 @@ PROMPT = ChatPromptTemplate.from_messages(
         ("human", "{question}"),
     ]
 )
+
+
+def extract_video_id(raw: str) -> str:
+    """Pull a YouTube video ID out of a pasted URL, or pass through a bare ID.
+
+    Handles watch URLs (with or without extra query params), youtu.be short
+    links, /embed/, /shorts/, with or without a scheme, and the "v=ID"
+    fragment someone might paste by only copying part of the query string.
+    """
+    raw = raw.strip()
+    if not raw:
+        return raw
+
+    if raw.startswith("v=") and "&" not in raw and "/" not in raw:
+        return raw[2:]
+
+    looks_like_youtube_url = "youtube.com" in raw or "youtu.be" in raw
+    if not looks_like_youtube_url:
+        return raw
+
+    candidate = raw if "://" in raw else f"https://{raw}"
+    parsed = urlparse(candidate)
+    host = parsed.netloc.replace("www.", "").replace("m.", "")
+
+    if host == "youtu.be":
+        video_id = parsed.path.lstrip("/").split("/")[0]
+        return video_id or raw
+
+    if "youtube.com" in host:
+        if parsed.path == "/watch":
+            query = parse_qs(parsed.query)
+            if query.get("v") and query["v"][0]:
+                return query["v"][0]
+        match = re.match(r"^/(?:embed|shorts|v)/([^/?&]+)", parsed.path)
+        if match:
+            return match.group(1)
+
+    return raw
 
 
 def _titles_path() -> str:

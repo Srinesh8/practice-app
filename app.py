@@ -5,7 +5,13 @@ import os
 import streamlit as st
 
 import model_config as cfg
-from rag import answer_question, build_qa_chain, fetch_transcripts, get_or_build_vectorstore
+from rag import (
+    answer_question,
+    build_qa_chain,
+    extract_video_id,
+    fetch_transcripts,
+    get_or_build_vectorstore,
+)
 
 DEFAULT_VIDEO_IDS = ["zjkBMFhNj_g"]  # Andrej Karpathy - "Intro to Large Language Models"
 COOKIES_UPLOAD_PATH = "secrets/cookies.txt"
@@ -116,12 +122,14 @@ with st.sidebar:
 
     st.header("Indexed videos")
     video_ids_input = st.text_area(
-        "YouTube video IDs (one per line)",
+        "YouTube video IDs or URLs (one per line)",
         value="\n".join(DEFAULT_VIDEO_IDS),
         height=100,
     )
     if st.button("Fetch + Index"):
-        video_ids = [v.strip() for v in video_ids_input.splitlines() if v.strip()]
+        video_ids = [
+            extract_video_id(v) for v in video_ids_input.splitlines() if v.strip()
+        ]
         with st.spinner("Fetching transcripts and updating vector store..."):
             available = fetch_transcripts(video_ids)
             st.session_state.vectorstore = get_or_build_vectorstore(available)

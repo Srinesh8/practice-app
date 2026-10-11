@@ -147,9 +147,10 @@ shows a friendly in-app error instead of crashing.
   here instead of editing `.env`. Clicking **Save settings** persists everything to
   `secrets/settings.json` (owner-only file permissions, gitignored) and rebuilds the chatbot
   with the new config.
-- **Indexed videos** — paste one or more YouTube video IDs (just the ID, e.g. `NYOkZObSjoM`
-  from `youtube.com/watch?v=NYOkZObSjoM` — not the whole URL) and click **Fetch + Index** to
-  pull their transcripts and add them to the vector store.
+- **Indexed videos** — paste one or more YouTube video IDs *or full URLs* (one per line) and
+  click **Fetch + Index**. Full URLs are parsed automatically (`watch?v=`, `youtu.be/`,
+  `/shorts/`, `/embed/`, with or without extra query params like `&t=42s`), so you can just
+  paste whatever's in your browser's address bar.
 - **Chat** — ask questions at the bottom. Answers are grounded only in retrieved transcript
   chunks, plus a live list of indexed video titles (derived straight from the vector store,
   so it can never drift out of sync — see **Answer behavior** below) so "what can you tell

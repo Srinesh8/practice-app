@@ -2,12 +2,33 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 import rag
 
 
 class _FakeSnippet:
     def __init__(self, text):
         self.text = text
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("NYOkZObSjoM", "NYOkZObSjoM"),
+        ("https://www.youtube.com/watch?v=NYOkZObSjoM", "NYOkZObSjoM"),
+        ("https://www.youtube.com/watch?v=NYOkZObSjoM&t=42s", "NYOkZObSjoM"),
+        ("youtube.com/watch?v=NYOkZObSjoM", "NYOkZObSjoM"),
+        ("https://youtu.be/NYOkZObSjoM", "NYOkZObSjoM"),
+        ("https://youtu.be/NYOkZObSjoM?t=5", "NYOkZObSjoM"),
+        ("https://www.youtube.com/shorts/NYOkZObSjoM", "NYOkZObSjoM"),
+        ("https://www.youtube.com/embed/NYOkZObSjoM", "NYOkZObSjoM"),
+        ("v=NYOkZObSjoM", "NYOkZObSjoM"),
+        ("  https://www.youtube.com/watch?v=NYOkZObSjoM  ", "NYOkZObSjoM"),
+    ],
+)
+def test_extract_video_id_handles_urls_and_bare_ids(raw, expected):
+    assert rag.extract_video_id(raw) == expected
 
 
 def test_fetch_transcripts_skips_already_saved(tmp_path, monkeypatch):
