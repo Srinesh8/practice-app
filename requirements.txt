@@ -1,0 +1,10 @@
+youtube-transcript-api==1.2.4
+langchain==0.3.21
+langchain-ollama==0.2.3
+langchain-chroma==0.2.2
+langchain-text-splitters==0.3.7
+chromadb==0.6.3
+streamlit==1.42.0
+python-dotenv==1.0.1
+pytest==8.3.4
+requests==2.32.3
