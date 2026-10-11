@@ -62,5 +62,9 @@ def test_live_fetch_index_and_answer(tmp_path, monkeypatch):
 
     capability_request = rag.answer_question(qa_chain, "can you sing a song?")
     capability_answer = capability_request["answer"].lower()
-    assert "don't know" in capability_answer
+    assert capability_answer.startswith("i don't know")
     assert "i can only answer questions about" in capability_answer
+
+    scope_question = rag.answer_question(qa_chain, "what can you do?")
+    scope_answer = scope_question["answer"].lower()
+    assert not scope_answer.startswith("i don't know")

@@ -32,6 +32,34 @@ def test_full_pipeline_answers_from_indexed_transcript(tmp_path, monkeypatch, fa
 
 
 @pytest.mark.integration
+def test_pipeline_answers_scope_questions_directly_without_i_dont_know(
+    tmp_path, monkeypatch, fake_embeddings, fake_llm
+):
+    """'What can you do?' is answerable from the bot's own scope - it must NOT
+    be prefixed with "I don't know", unlike a genuine refusal."""
+    monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path / "transcripts"))
+    monkeypatch.setattr(rag.cfg, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma_db"))
+    monkeypatch.setattr(rag.cfg, "CHROMA_COLLECTION_NAME", "test_collection_6")
+    monkeypatch.setattr(rag.cfg, "CHUNK_SIZE", 200)
+    monkeypatch.setattr(rag.cfg, "CHUNK_OVERLAP", 0)
+    monkeypatch.setattr(rag.cfg, "get_embeddings", lambda: fake_embeddings)
+    monkeypatch.setattr(rag.cfg, "get_llm", lambda: fake_llm)
+    monkeypatch.setattr(rag, "fetch_video_title", lambda video_id: "Intro to Large Language Models")
+
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts" / "vid1.txt").write_text("some transcript text about LLMs")
+
+    vectorstore = rag.get_or_build_vectorstore(["vid1"])
+    qa_chain = rag.build_qa_chain(vectorstore)
+
+    for question in ["what can you do?", "what are your capabilities?"]:
+        result = rag.answer_question(qa_chain, question)
+        answer_lower = result["answer"].lower()
+        assert not answer_lower.startswith("i don't know")
+        assert "large language models" in answer_lower
+
+
+@pytest.mark.integration
 def test_pipeline_answers_i_dont_know_when_out_of_context(tmp_path, monkeypatch, fake_embeddings, fake_llm):
     monkeypatch.setattr(rag.cfg, "TRANSCRIPTS_DIR", str(tmp_path / "transcripts"))
     monkeypatch.setattr(rag.cfg, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma_db"))
